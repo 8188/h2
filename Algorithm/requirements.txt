@@ -1,0 +1,11 @@
+celery[redis] 
+eventlet
+orjson 
+taospy 
+pandas 
+scipy 
+paho-mqtt 
+statsmodels 
+outlier-utils 
+pyod 
+sranodec

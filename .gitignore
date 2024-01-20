@@ -1,0 +1,13 @@
+DataAcquisition/logs
+*.txt
+*.o
+*.json
+*.exe
+test*
+Algorithm/*
+!Algorithm/requirements.txt
+!Algorithm/tasks.py
+!Algorithm/celeryconfig.py
+!Algorithm/alert_count_sql.py
+Digital_Twin_Vue-master/
+mock/
