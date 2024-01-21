@@ -1,9 +1,9 @@
 DataAcquisition/logs
+DataAcquisition/draft
 *.txt
 *.o
 *.json
 *.exe
-test*
 Algorithm/*
 !Algorithm/requirements.txt
 !Algorithm/tasks.py

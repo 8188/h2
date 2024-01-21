@@ -2,7 +2,6 @@
 
 modbus_t *ctx;
 TAOS *taos;
-redisContext *c;
 MQTTAsync client;
 
 void clean()
@@ -11,7 +10,6 @@ void clean()
     modbus_free(ctx);
     taos_close(taos);
     taos_cleanup();
-    redisFree(c);
     MQTTAsync_destroy(&client);
 }
 

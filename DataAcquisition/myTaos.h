@@ -1,8 +1,6 @@
 #ifndef MYTAOS_H
 #define MYTAOS_H
 
-#include <hiredis.h>
-
 void taosConn(const char *ip, const char *username, const char *password, const char *database, uint16_t port);
 
 void executeSQL(const char *sql);

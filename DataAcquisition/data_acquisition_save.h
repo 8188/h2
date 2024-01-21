@@ -9,6 +9,9 @@
 uint16_t *modbusReadData;
 uint8_t *readBools;
 float *readAnalogs;
+std::vector<uint64_t> timestamps;
+std::vector<std::vector<float>> gAnalogs;
+std::vector<std::vector<uint8_t>> gBools;
 
 INITIALIZE_EASYLOGGINGPP
 
@@ -40,7 +43,24 @@ void setLogger()
     LOG(INFO) << "--------The program has started--------";
 }
 
-void insert(redisReply *reply, int len, int dev, const char *taosTableName, const char* type)
+void saveAnalogs(float *analogs)
+{
+    auto now = std::chrono::system_clock::now();
+    auto duration = now.time_since_epoch();
+    auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+
+    std::vector<float> analogs_vector(analogs, analogs + ANALOG_COLS);
+    timestamps.push_back(millis);
+    gAnalogs.push_back(analogs_vector);
+}
+
+void saveBools(uint8_t *bools)
+{
+    std::vector<uint8_t> bools_vector(bools, bools + BOOL_COLS);
+    gBools.push_back(bools_vector);
+}
+
+void newInsert(int len, int dev, const char *taosTableName, const char* type)
 {
     char *str1 = myMalloc<char>(len * 2 + 1);
     int j = 0;
@@ -57,7 +77,7 @@ void insert(redisReply *reply, int len, int dev, const char *taosTableName, cons
     char *sql1 = myMalloc<char>(len * 2 + 100);
     sprintf(sql1, "INSERT INTO ? USING %s TAGS(?) VALUES(?, %s)", stn, str1);
     free(str1);
-    
+
     TAOS_STMT *stmt = taos_stmt_init(taos);
     int code = taos_stmt_prepare(stmt, sql1, 0);
     free(sql1);
@@ -75,71 +95,77 @@ void insert(redisReply *reply, int len, int dev, const char *taosTableName, cons
     values[0].is_null = NULL;
     values[0].num = 1;
 
-    int insertNums = reply->elements;
-    json j_obj;
+    int insertNums = timestamps.size();
     long long now;
     time_t t;
     struct tm *tm_now;
     char buf[64];
     char tableName[100];
-    float *fdata = new float[len];
-    uint8_t *bdata = new uint8_t[len];
 
-    for (int i = 0; i < insertNums; i++)
-    {
-        j_obj = json::parse(reply->element[i]->str);
-        now = j_obj.at("timestamp");
-        t = now / 1000;
-        tm_now = localtime(&t);
-        memset(buf, 0, 64);
-        strftime(buf, 64, "%Y%m%d", tm_now);
-        memset(tableName, 0, 100);
-        sprintf(tableName, "%s%s", taosTableName, buf);
-
-        code = taos_stmt_set_tbname_tags(stmt, tableName, tags);
-        checkErrorCode(stmt, code, "failed to execute taos_stmt_set_tbname_tags");
-
-        values[0].buffer = &now;
-
-        if (type == "FLOAT")
+    if (type == "FLOAT") {
+        for (int i = 0; i < insertNums; i++)
         {
-            std::vector<float> data = j_obj.at("analogs");
+            now = timestamps[i];
+            t = now / 1000;
+            tm_now = localtime(&t);
+            memset(buf, 0, 64);
+            strftime(buf, 64, "%Y%m%d", tm_now);
+            memset(tableName, 0, 100);
+            sprintf(tableName, "%s%s", taosTableName, buf);
 
-            for (int i = 1; i < len + 1; ++i)
+            code = taos_stmt_set_tbname_tags(stmt, tableName, tags);
+            checkErrorCode(stmt, code, "failed to execute taos_stmt_set_tbname_tags");
+
+            values[0].buffer = &now;
+
+            for (int j = 1; j < len + 1; ++j)
             {
-                values[i].buffer_type = TSDB_DATA_TYPE_FLOAT;
-                fdata[i - 1] = data[i - 1] * 1.0f;
-                values[i].buffer = &fdata[i - 1];
-                values[i].buffer_length = sizeof(float);
-                values[i].is_null = NULL;
-                values[i].num = 1;
+                values[j].buffer_type = TSDB_DATA_TYPE_FLOAT;
+                values[j].buffer = &gAnalogs[i][j - 1];
+                values[j].buffer_length = sizeof(float);
+                values[j].is_null = NULL;
+                values[j].num = 1;
             }
+
+            code = taos_stmt_bind_param(stmt, values);
+            checkErrorCode(stmt, code, "failed to execute taos_stmt_bind_param");
+
+            code = taos_stmt_add_batch(stmt);
+            checkErrorCode(stmt, code, "failed to execute taos_stmt_add_batch");
         }
-        else
+    } else {
+        for (int i = 0; i < insertNums; i++)
         {
-            std::vector<int8_t> data = j_obj.at("bools");
+            now = timestamps[i];
+            t = now / 1000;
+            tm_now = localtime(&t);
+            memset(buf, 0, 64);
+            strftime(buf, 64, "%Y%m%d", tm_now);
+            memset(tableName, 0, 100);
+            sprintf(tableName, "%s%s", taosTableName, buf);
 
-            for (int i = 1; i < len + 1; ++i)
+            code = taos_stmt_set_tbname_tags(stmt, tableName, tags);
+            checkErrorCode(stmt, code, "failed to execute taos_stmt_set_tbname_tags");
+
+            values[0].buffer = &now;
+
+            for (int j = 1; j < len + 1; ++j)
             {
-                values[i].buffer_type = TSDB_DATA_TYPE_BOOL;
-                // printf("%d ", data[i - 1]);
-                bdata[i - 1] = data[i - 1];
-                values[i].buffer = &bdata[i - 1];
-                values[i].buffer_length = sizeof(int8_t);
-                values[i].is_null = NULL;
-                values[i].num = 1;
+                values[j].buffer_type = TSDB_DATA_TYPE_BOOL;
+                values[j].buffer = &gBools[i][j - 1];
+                values[j].buffer_length = sizeof(int8_t);
+                values[j].is_null = NULL;
+                values[j].num = 1;
             }
+
+            code = taos_stmt_bind_param(stmt, values);
+            checkErrorCode(stmt, code, "failed to execute taos_stmt_bind_param");
+
+            code = taos_stmt_add_batch(stmt);
+            checkErrorCode(stmt, code, "failed to execute taos_stmt_add_batch");
         }
-
-        code = taos_stmt_bind_param(stmt, values);
-        checkErrorCode(stmt, code, "failed to execute taos_stmt_bind_param");
-
-        code = taos_stmt_add_batch(stmt);
-        checkErrorCode(stmt, code, "failed to execute taos_stmt_add_batch");
     }
     delete[] values;
-    delete[] fdata;
-    delete[] bdata;
 
     code = taos_stmt_execute(stmt);
     checkErrorCode(stmt, code, "failed to execute taos_stmt_execute");
@@ -148,19 +174,6 @@ void insert(redisReply *reply, int len, int dev, const char *taosTableName, cons
     printf("successfully inserted dev:%d, table:%s, %d rows\n", dev, taosTableName, affectedRows);
 
     taos_stmt_close(stmt);
-}
-
-void lrange_and_insert(const char* redisListName, const char* taosTableName, int nb, int dev, const char* type)
-{
-    redisReply *reply = (redisReply *)redisCommand(c, "LRANGE %s 0 -1", redisListName);
-
-    if (reply->type == REDIS_REPLY_ARRAY)
-    {
-        insert(reply, nb, dev, taosTableName, type);
-        printf("Get elements from %s: %lu\n", redisListName, reply->elements);
-    }
-
-    freeReplyObject(reply);
 }
 
 #endif // DATA_ACQUISITION_SAVE_H

@@ -3,8 +3,6 @@
 
 #include "modbus.h"
 #include "taos.h"
-#include <hiredis.h>
-#include <pthread.h>
 #include "MQTTAsync.h"
 #include <json.hpp>
 #include "easylogging++.h"
@@ -19,7 +17,6 @@ using json = nlohmann::json;
 
 extern modbus_t *ctx;
 extern TAOS *taos;
-extern redisContext *c;
 extern MQTTAsync client;
 
 void clean();
