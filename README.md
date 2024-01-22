@@ -2,7 +2,7 @@
 
 #### DataAcquisition
 - Reliance
-Paho.mqtt.c, Libmodbus, Tdengine, Easyloggingpp, Nlohmann, TaskFlow
+> Paho.mqtt.c, Libmodbus, Tdengine, Easyloggingpp, Nlohmann, TaskFlow
 - Create Data Table
 ```
 g++ createStable.cpp -o createStable -I/reliance/headfile -L/reliance/lib -ltaos

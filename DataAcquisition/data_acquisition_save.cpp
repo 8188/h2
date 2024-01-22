@@ -59,35 +59,30 @@ int main(int argc, char *argv[])
 
     tf::Task f1B = f1.emplace([&]() {
         readAnalogs = extractAnalog(modbusReadData);
-    }).name("extract_analogs");
+        saveDatum(readAnalogs, ANALOG_COLS, gAnalogs);
+    }).name("extract&save_analogs");
 
     tf::Task f1C = f1.emplace([&]() {
         readBools = extractBool(modbusReadData);
-    }).name("extract_bools");
+        saveDatum(readBools, BOOL_COLS, gBools);
+    }).name("extract&save_bools");
 
     tf::Task f1D = f1.emplace([&]() {
-        saveAnalogs(readAnalogs);
+        saveTimestamps();
         free(modbusReadData);
-        free(readAnalogs);
-    }).name("save_analogs");
-
-    tf::Task f1E = f1.emplace([&]() {
-        saveBools(readBools);
-        free(readBools);
-    }).name("save_bools");
+    }).name("save_timestamps");
 
     f1A.precede(f1B, f1C);
     f1D.succeed(f1B, f1C);
-    f1E.succeed(f1B, f1C);
 
     tf::Taskflow f2("F2");
 
     tf::Task f2A = f2.emplace([&] {
-        newInsert(ANALOG_COLS, device, "analog", "FLOAT");
+        newInsert(gAnalogs, ANALOG_COLS, device, "analog", std::string("FLOAT"));
     }).name("insert_analogs");
 
     tf::Task f2B = f2.emplace([&] {
-        newInsert(BOOL_COLS, device, "bool", "INT");
+        newInsert(gBools, BOOL_COLS, device, "bool", std::string("BOOL"));
     }).name("insert_bools");
 
     tf::Taskflow f3("F3");

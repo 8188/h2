@@ -13,6 +13,12 @@ std::vector<uint64_t> timestamps;
 std::vector<std::vector<float>> gAnalogs;
 std::vector<std::vector<uint8_t>> gBools;
 
+std::unordered_map<std::string, int> typeMap = {
+    {"BOOL", TSDB_DATA_TYPE_BOOL},
+    {"FLOAT", TSDB_DATA_TYPE_FLOAT},
+    {"INT", TSDB_DATA_TYPE_INT}
+};
+
 INITIALIZE_EASYLOGGINGPP
 
 void setLogger()
@@ -43,24 +49,24 @@ void setLogger()
     LOG(INFO) << "--------The program has started--------";
 }
 
-void saveAnalogs(float *analogs)
+void saveTimestamps()
 {
     auto now = std::chrono::system_clock::now();
     auto duration = now.time_since_epoch();
     auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-
-    std::vector<float> analogs_vector(analogs, analogs + ANALOG_COLS);
     timestamps.push_back(millis);
-    gAnalogs.push_back(analogs_vector);
 }
 
-void saveBools(uint8_t *bools)
+template <typename T>
+void saveDatum(T *readData, int cols, std::vector<std::vector<T>>& saveData)
 {
-    std::vector<uint8_t> bools_vector(bools, bools + BOOL_COLS);
-    gBools.push_back(bools_vector);
+    std::vector<T> bools_vector(readData, readData + cols);
+    saveData.push_back(bools_vector);
+    free(readData);
 }
 
-void newInsert(int len, int dev, const char *taosTableName, const char* type)
+template <typename T>
+void newInsert(std::vector<std::vector<T>>& data, int len, int dev, const char *taosTableName, const std::string& type)
 {
     char *str1 = myMalloc<char>(len * 2 + 1);
     int j = 0;
@@ -102,68 +108,42 @@ void newInsert(int len, int dev, const char *taosTableName, const char* type)
     char buf[64];
     char tableName[100];
 
-    if (type == "FLOAT") {
-        for (int i = 0; i < insertNums; i++)
+    int bufferType{0};
+    auto iter = typeMap.find(type);
+    if (iter != typeMap.end())
+    {
+        bufferType = iter->second;
+    }
+
+    for (int i = 0; i < insertNums; i++)
+    {
+        now = timestamps[i];
+        t = now / 1000;
+        tm_now = localtime(&t);
+        memset(buf, 0, 64);
+        strftime(buf, 64, "%Y%m%d", tm_now);
+        memset(tableName, 0, 100);
+        sprintf(tableName, "%s%s", taosTableName, buf);
+
+        code = taos_stmt_set_tbname_tags(stmt, tableName, tags);
+        checkErrorCode(stmt, code, "failed to execute taos_stmt_set_tbname_tags");
+
+        values[0].buffer = &now;
+
+        for (int j = 1; j < len + 1; ++j)
         {
-            now = timestamps[i];
-            t = now / 1000;
-            tm_now = localtime(&t);
-            memset(buf, 0, 64);
-            strftime(buf, 64, "%Y%m%d", tm_now);
-            memset(tableName, 0, 100);
-            sprintf(tableName, "%s%s", taosTableName, buf);
-
-            code = taos_stmt_set_tbname_tags(stmt, tableName, tags);
-            checkErrorCode(stmt, code, "failed to execute taos_stmt_set_tbname_tags");
-
-            values[0].buffer = &now;
-
-            for (int j = 1; j < len + 1; ++j)
-            {
-                values[j].buffer_type = TSDB_DATA_TYPE_FLOAT;
-                values[j].buffer = &gAnalogs[i][j - 1];
-                values[j].buffer_length = sizeof(float);
-                values[j].is_null = NULL;
-                values[j].num = 1;
-            }
-
-            code = taos_stmt_bind_param(stmt, values);
-            checkErrorCode(stmt, code, "failed to execute taos_stmt_bind_param");
-
-            code = taos_stmt_add_batch(stmt);
-            checkErrorCode(stmt, code, "failed to execute taos_stmt_add_batch");
+            values[j].buffer_type = bufferType;
+            values[j].buffer = &data[i][j - 1];
+            values[j].buffer_length = sizeof(T);
+            values[j].is_null = NULL;
+            values[j].num = 1;
         }
-    } else {
-        for (int i = 0; i < insertNums; i++)
-        {
-            now = timestamps[i];
-            t = now / 1000;
-            tm_now = localtime(&t);
-            memset(buf, 0, 64);
-            strftime(buf, 64, "%Y%m%d", tm_now);
-            memset(tableName, 0, 100);
-            sprintf(tableName, "%s%s", taosTableName, buf);
 
-            code = taos_stmt_set_tbname_tags(stmt, tableName, tags);
-            checkErrorCode(stmt, code, "failed to execute taos_stmt_set_tbname_tags");
+        code = taos_stmt_bind_param(stmt, values);
+        checkErrorCode(stmt, code, "failed to execute taos_stmt_bind_param");
 
-            values[0].buffer = &now;
-
-            for (int j = 1; j < len + 1; ++j)
-            {
-                values[j].buffer_type = TSDB_DATA_TYPE_BOOL;
-                values[j].buffer = &gBools[i][j - 1];
-                values[j].buffer_length = sizeof(int8_t);
-                values[j].is_null = NULL;
-                values[j].num = 1;
-            }
-
-            code = taos_stmt_bind_param(stmt, values);
-            checkErrorCode(stmt, code, "failed to execute taos_stmt_bind_param");
-
-            code = taos_stmt_add_batch(stmt);
-            checkErrorCode(stmt, code, "failed to execute taos_stmt_add_batch");
-        }
+        code = taos_stmt_add_batch(stmt);
+        checkErrorCode(stmt, code, "failed to execute taos_stmt_add_batch");
     }
     delete[] values;
 
