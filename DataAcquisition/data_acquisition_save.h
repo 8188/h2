@@ -5,11 +5,13 @@
 
 #define LOG_FILE_NAME "logs/info.%datetime{%Y%M%d}.log"
 #define MAX_LOG_FILE_SIZE "1000000"
+#define WRITE_INTERVAL 10
 
 uint16_t *modbusReadData;
 uint8_t *readBools;
 float *readAnalogs;
-std::vector<uint64_t> timestamps;
+std::vector<uint64_t> timestampsA;
+std::vector<uint64_t> timestampsB;
 std::vector<std::vector<float>> gAnalogs;
 std::vector<std::vector<uint8_t>> gBools;
 
@@ -54,7 +56,8 @@ void saveTimestamps()
     auto now = std::chrono::system_clock::now();
     auto duration = now.time_since_epoch();
     auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-    timestamps.push_back(millis);
+    timestampsA.push_back(millis);
+    timestampsB.push_back(millis);
 }
 
 template <typename T>
@@ -66,7 +69,7 @@ void saveDatum(T *readData, int cols, std::vector<std::vector<T>>& saveData)
 }
 
 template <typename T>
-void newInsert(std::vector<std::vector<T>>& data, int len, int dev, const char *taosTableName, const std::string& type)
+void newInsert(std::vector<std::vector<T>>& data, std::vector<uint64_t>& ts, int len, int dev, const char *taosTableName, const std::string& type)
 {
     char *str1 = myMalloc<char>(len * 2 + 1);
     int j = 0;
@@ -101,7 +104,7 @@ void newInsert(std::vector<std::vector<T>>& data, int len, int dev, const char *
     values[0].is_null = NULL;
     values[0].num = 1;
 
-    int insertNums = timestamps.size();
+    int insertNums = WRITE_INTERVAL;
     long long now;
     time_t t;
     struct tm *tm_now;
@@ -117,7 +120,7 @@ void newInsert(std::vector<std::vector<T>>& data, int len, int dev, const char *
 
     for (int i = 0; i < insertNums; i++)
     {
-        now = timestamps[i];
+        now = ts[i];
         t = now / 1000;
         tm_now = localtime(&t);
         memset(buf, 0, 64);

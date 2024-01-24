@@ -72,18 +72,28 @@ int main(int argc, char *argv[])
         free(modbusReadData);
     }).name("save_timestamps");
 
-    f1A.precede(f1B, f1C);
-    f1D.succeed(f1B, f1C);
-
-    tf::Taskflow f2("F2");
-
-    tf::Task f2A = f2.emplace([&] {
-        newInsert(gAnalogs, ANALOG_COLS, device, "analog", std::string("FLOAT"));
+    tf::Task f1E = f1.emplace([&] {
+        if (gAnalogs.size() >= WRITE_INTERVAL) 
+        {
+            newInsert(gAnalogs, timestampsA, ANALOG_COLS, device, "analog", std::string("FLOAT"));
+            gAnalogs.clear();
+            timestampsA.clear();
+        }
     }).name("insert_analogs");
 
-    tf::Task f2B = f2.emplace([&] {
-        newInsert(gBools, BOOL_COLS, device, "bool", std::string("BOOL"));
+    tf::Task f1F = f1.emplace([&] {
+        if (gAnalogs.size() >= WRITE_INTERVAL) 
+        {
+            newInsert(gBools, timestampsB, BOOL_COLS, device, "bool", std::string("BOOL"));
+            gBools.clear();
+            timestampsB.clear();
+        }
     }).name("insert_bools");
+
+    f1E.precede(f1B, f1C);
+    f1F.precede(f1B, f1C);
+    f1A.precede(f1B, f1C);
+    f1D.succeed(f1B, f1C);
 
     tf::Taskflow f3("F3");
 
@@ -99,19 +109,13 @@ int main(int argc, char *argv[])
         auto start = std::chrono::steady_clock::now();
 
         executor.run(f1).wait();
-        if (++count % 10 == 0) {
-            executor.run(f2).wait();
-            timestamps.clear();
-            gAnalogs.clear();
-            gBools.clear();
-        }
         // if (count % 5 == 0) {
         //     executor.run(f3).wait();
         // }
 
         auto end = std::chrono::steady_clock::now();
         auto elapsed_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-        printf("Total time used: %ld microseconds\n", elapsed_time.count());
+        printf("Loop %d time used: %ld microseconds\n", ++count, elapsed_time.count());
         std::this_thread::sleep_for(std::chrono::microseconds(1000000 - elapsed_time.count()));
     }
 
