@@ -31,9 +31,7 @@ import requests
 
 warnings.filterwarnings("ignore")
 
-
-config_file = r"D:\文档\C++\并发\taskflow\H2\config.json"
-config_file = r"../H2/config.json"
+config_file = r"../DataAcquisition/config.json"
 with open(config_file, "rb") as file:
     parsed_json = json.loads(file.read())
 

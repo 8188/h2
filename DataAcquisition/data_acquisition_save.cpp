@@ -60,15 +60,22 @@ int main(int argc, char *argv[])
     tf::Task f1B = f1.emplace([&]() {
         readAnalogs = extractAnalog(modbusReadData);
         saveDatum(readAnalogs, ANALOG_COLS, gAnalogs);
+        auto now = std::chrono::system_clock::now();
+        auto duration = now.time_since_epoch();
+        auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+        timestampsA.push_back(millis);
     }).name("extract&save_analogs");
 
     tf::Task f1C = f1.emplace([&]() {
         readBools = extractBool(modbusReadData);
         saveDatum(readBools, BOOL_COLS, gBools);
+        auto now = std::chrono::system_clock::now();
+        auto duration = now.time_since_epoch();
+        auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+        timestampsB.push_back(millis);
     }).name("extract&save_bools");
 
     tf::Task f1D = f1.emplace([&]() {
-        saveTimestamps();
         free(modbusReadData);
     }).name("save_timestamps");
 
@@ -76,8 +83,8 @@ int main(int argc, char *argv[])
         if (gAnalogs.size() >= WRITE_INTERVAL) 
         {
             newInsert(gAnalogs, timestampsA, ANALOG_COLS, device, "analog", std::string("FLOAT"));
-            gAnalogs.clear();
-            timestampsA.clear();
+            gAnalogs.erase(gAnalogs.begin(), gAnalogs.begin() + WRITE_INTERVAL);
+            timestampsA.erase(timestampsA.begin(), timestampsA.begin() + WRITE_INTERVAL);
         }
     }).name("insert_analogs");
 
@@ -85,13 +92,11 @@ int main(int argc, char *argv[])
         if (gAnalogs.size() >= WRITE_INTERVAL) 
         {
             newInsert(gBools, timestampsB, BOOL_COLS, device, "bool", std::string("BOOL"));
-            gBools.clear();
-            timestampsB.clear();
+            gBools.erase(gBools.begin(), gBools.begin() + WRITE_INTERVAL);
+            timestampsB.erase(timestampsB.begin(), timestampsB.begin() + WRITE_INTERVAL);
         }
     }).name("insert_bools");
 
-    f1E.precede(f1B, f1C);
-    f1F.precede(f1B, f1C);
     f1A.precede(f1B, f1C);
     f1D.succeed(f1B, f1C);
 

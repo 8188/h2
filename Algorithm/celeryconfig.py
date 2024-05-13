@@ -48,6 +48,6 @@ beat_schedule = {
     },
     'task4': {
         'task': 'tasks.homeInfo',
-        'schedule': timedelta(hours=11),
+        'schedule': timedelta(seconds=11),
     },
 }

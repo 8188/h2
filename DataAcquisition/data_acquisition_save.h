@@ -51,15 +51,6 @@ void setLogger()
     LOG(INFO) << "--------The program has started--------";
 }
 
-void saveTimestamps()
-{
-    auto now = std::chrono::system_clock::now();
-    auto duration = now.time_since_epoch();
-    auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-    timestampsA.push_back(millis);
-    timestampsB.push_back(millis);
-}
-
 template <typename T>
 void saveDatum(T *readData, int cols, std::vector<std::vector<T>>& saveData)
 {

@@ -9,3 +9,4 @@ statsmodels
 outlier-utils 
 pyod 
 sranodec
+paramiko
