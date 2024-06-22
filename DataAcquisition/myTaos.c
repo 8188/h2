@@ -19,24 +19,28 @@ void taosConn(const char *ip, const char *username, const char *password, const 
     }
 }
 
-void select_callback(void *param, TAOS_RES *res, int code) {
-  TAOS *_taos = (TAOS *)param;
-  if (code == 0 && res) {
-    // printHeader(res);
-    // taos_fetch_rows_a(res, fetch_row_callback, _taos);
-  } else {
-    printf("Failed to execute taos_query. error: %s\n", taos_errstr(res));
-    std::stringstream ss;
-	ss << taos_errstr(res);
-    LOG(ERROR) << "Failed to execute taos_query. error: " << ss.str();
+void select_callback(void *param, TAOS_RES *res, int code)
+{
+    TAOS *_taos = (TAOS *)param;
+    if (code == 0 && res)
+    {
+        // printHeader(res);
+        // taos_fetch_rows_a(res, fetch_row_callback, _taos);
+    }
+    else
+    {
+        printf("Failed to execute taos_query. error: %s\n", taos_errstr(res));
+        std::stringstream ss;
+        ss << taos_errstr(res);
+        LOG(ERROR) << "Failed to execute taos_query. error: " << ss.str();
+        taos_free_result(res);
+        clean();
+        exit(EXIT_FAILURE);
+    }
+    int affectedRows = taos_affected_rows(res);
+    printf("Affected rows %d\n", affectedRows);
+    LOG(INFO) << "Affected rows " << affectedRows;
     taos_free_result(res);
-    clean();
-    exit(EXIT_FAILURE);
-  }
-  int affectedRows = taos_affected_rows(res);
-  printf("Affected rows %d\n", affectedRows);
-  LOG(INFO) << "Affected rows " << affectedRows;
-  taos_free_result(res);
 }
 
 void executeSQL(const char *sql)
@@ -129,31 +133,34 @@ char *myQuery()
     {
         const char *fieldName = fields[i].name;
 
-        switch (fields[i].type)
+        if (row != nullptr && row[i] != nullptr)
         {
-        case TSDB_DATA_TYPE_INT:
-        {
-            jsonMsg[fieldName] = *((int32_t *)row[i]);
-            break;
-        }
-        case TSDB_DATA_TYPE_FLOAT:
-        {
-            jsonMsg[fieldName] = *((float *)row[i]);
-            break;
-        }
-        case TSDB_DATA_TYPE_BOOL:
-        {
-            printf("%d ", *((int8_t *)row[i]));
-            jsonMsg[fieldName] = *((int8_t *)row[i]);
-            break;
-        }
-        case TSDB_DATA_TYPE_TIMESTAMP:
-        {
-            jsonMsg[fieldName] = *((int64_t *)row[i]);
-            break;
-        }
-        default:
-            break;
+            switch (fields[i].type)
+            {
+            case TSDB_DATA_TYPE_INT:
+            {
+                jsonMsg[fieldName] = *((int32_t *)row[i]);
+                break;
+            }
+            case TSDB_DATA_TYPE_FLOAT:
+            {
+                jsonMsg[fieldName] = *((float *)row[i]);
+                break;
+            }
+            case TSDB_DATA_TYPE_BOOL:
+            {
+                printf("%d ", *((int8_t *)row[i]));
+                jsonMsg[fieldName] = *((int8_t *)row[i]);
+                break;
+            }
+            case TSDB_DATA_TYPE_TIMESTAMP:
+            {
+                jsonMsg[fieldName] = *((int64_t *)row[i]);
+                break;
+            }
+            default:
+                break;
+            }
         }
     }
     std::string str = jsonMsg.dump();

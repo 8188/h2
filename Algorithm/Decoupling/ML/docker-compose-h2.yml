@@ -1,0 +1,14 @@
+version: '3'
+services:
+  worker:
+    image: h2-app
+    container_name: h2
+    env_file:
+      - .env.h2.prod
+    entrypoint: ["/bin/bash", "-c", "chmod +x /app/start.sh && /app/start.sh && while true; do sleep 1; done"]
+    restart: always
+
+  taos:
+    image: tdengine/tdengine:latest
+    container_name: h2-taos
+    restart: always
