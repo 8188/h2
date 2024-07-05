@@ -40,6 +40,7 @@ FORECAST_STEP = 5
 HISTORY_STEP = 25
 DECIMALS = 3
 ADFULLER_THRESHOLD_VAL = 0.05
+ADFULLER_CONFIDENCE_INTERVAL = 5
 MAX_QUEUE_SIZE = 10
 
 # 机理30% 诊断70% 主40% 提纯30% 制氢30% lscp70% grubbs15% sra15%
@@ -355,6 +356,21 @@ class Forecast:
         # print(yhat)
         return yhat
 
+    def _check_stationarity(self, df: pd.DataFrame) -> Literal[0, 1, 2]:
+        for _, column_data in df.items():
+            # 常数列
+            if column_data.nunique() == 1:
+                return 2
+
+            result = adfuller(column_data)
+
+            # 非平稳
+            if result[1] > ADFULLER_THRESHOLD_VAL or result[4][f"{ADFULLER_CONFIDENCE_INTERVAL}%"] <= result[0]:
+                return 0
+            else:
+                continue
+        return 1
+    
     async def vr_forecast(self, MQTTClient: aiomqtt.Client) -> None:
         vrfData[self.iUnit] = {}
         if f_df[self.iUnit].shape[0] < 40:
@@ -366,16 +382,12 @@ class Forecast:
         for i in range(targetListLen):
             vrdf = f_df[self.iUnit][self.targetList[i] + self.exogList[i]]
 
-            # 随便取一列平稳性测试
-            try:
-                p = adfuller(vrdf.iloc[:, 0], regression="ct")[1]  # ct: 常数项和趋势项
-            except:  # 全常数
-                p = 0
-            # print(f"p={p}")
+            r = self._check_stationarity(vrdf)
 
-            targetLen = len(self.targetList[i])
             try:
-                if p <= ADFULLER_THRESHOLD_VAL:  # 平稳的
+                if r == 2:
+                    continue
+                elif r == 1:
                     yhat = self._VAR_forecast(vrdf)
                 else:
                     yhat = self._VECM_forecast(vrdf)
@@ -389,7 +401,7 @@ class Forecast:
                 vrfData[self.iUnit].update(
                     {
                         col: result[col].round(DECIMALS).values.tolist()
-                        for col in result.columns[:targetLen]
+                        for col in result.columns[:len(self.targetList[i])]
                     }
                 )
         await MQTTClient.publish(f"H2_{self.unit}/Forecast/VR", json.dumps(vrfData[self.iUnit]))
@@ -401,7 +413,7 @@ class Forecast:
             print("Not enough data for ar_forecast1")
             return
 
-        order = (10, 1, 3)
+        order = (2, 0, 2)
         yhat = []
         ardf = f_df[self.iUnit][["c0", "c31", "c32", "c33", "c138", "c140", "c187"]]
 
@@ -521,30 +533,46 @@ class Logic:
         self.iUnit = int(unit) - 1
 
     def H2Quality(self) -> Literal[0, 1]:
-        if vrfData[self.iUnit]["c34"][-1] < 0.96 or vrfData[self.iUnit]["c35"][-1] < 0.96:
-            return 1
-        else:
+        # 键值不存在
+        try:
+            if (
+                vrfData[self.iUnit]["c34"][-1] < 0.96
+                or vrfData[self.iUnit]["c35"][-1] < 0.96
+            ):
+                return 1
+            else:
+                return 0
+        except Exception as e:
+            print(e)
             return 0
 
     def H2Leakage(self) -> Literal[0, 1]:
-        if arfData[self.iUnit]["c31"][-1] > 1:
-            return 1
-        else:
+        try:
+            if arfData[self.iUnit]["c31"][-1] > 1:
+                return 1
+            else:
+                return 0
+        except Exception as e:
+            print(e)
             return 0
 
     def liquidLeakage(self) -> Literal[0, 1]:
-        if (
-            vrfData[self.iUnit]["c36"][-1] > 650
-            or vrfData[self.iUnit]["c37"][-1] > 650
-            or vrfData[self.iUnit]["c38"][-1] > 650
-            or vrfData[self.iUnit]["c39"][-1] > 650
-            or vrfData[self.iUnit]["c27"][-1] > 10
-            or vrfData[self.iUnit]["c28"][-1] > 10
-            or vrfData[self.iUnit]["c29"][-1] > 10
-            or vrfData[self.iUnit]["c30"][-1] > 10
-        ):
-            return 1
-        else:
+        try:
+            if (
+                vrfData[self.iUnit]["c36"][-1] > 650
+                or vrfData[self.iUnit]["c37"][-1] > 650
+                or vrfData[self.iUnit]["c38"][-1] > 650
+                or vrfData[self.iUnit]["c39"][-1] > 650
+                or vrfData[self.iUnit]["c27"][-1] > 10
+                or vrfData[self.iUnit]["c28"][-1] > 10
+                or vrfData[self.iUnit]["c29"][-1] > 10
+                or vrfData[self.iUnit]["c30"][-1] > 10
+            ):
+                return 1
+            else:
+                return 0
+        except Exception as e:
+            print(e)
             return 0
 
 

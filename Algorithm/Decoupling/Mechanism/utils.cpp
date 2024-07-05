@@ -94,6 +94,8 @@ std::string myRound(T value, int precision = DECIMALS)
 
 class MyRedis {
 private:
+    sw::redis::Redis m_redis;
+    
     sw::redis::ConnectionOptions makeConnectionOptions(const std::string& ip, int port, int db, const std::string& user, const std::string& password)
     {
         sw::redis::ConnectionOptions opts;
@@ -119,12 +121,39 @@ private:
     }
 
 public:
-    sw::redis::Redis redis;
-
     MyRedis(const std::string& ip, int port, int db, const std::string& user, const std::string& password)
-        : redis(makeConnectionOptions(ip, port, db, user, password), makePoolOptions())
+        : m_redis(makeConnectionOptions(ip, port, db, user, password), makePoolOptions())
     {
+        m_redis.ping();
         std::cout << "Connected to Redis.\n";
+    }
+
+    MyRedis(const std::string& unixSocket)
+        : m_redis(unixSocket)
+    {
+        m_redis.ping();
+        std::cout << "Connected to Redis by unix socket.\n";
+    }
+
+    std::string m_hget(const std::string& key, const std::string& field)
+    {
+        std::string res;
+        try {
+            const auto optional_str = m_redis.hget(key, field);
+            res = optional_str.value_or("0");
+        } catch (const std::exception& e) {
+            std::cerr << "Exception: " << e.what() << std::endl;
+        }
+        return res;
+    }
+
+    void m_hset(const std::string_view& hash, const std::string_view& key, const std::string_view& value)
+    {
+        try {
+            m_redis.hset(hash, key, value);
+        } catch (const std::exception& e) {
+            std::cerr << "Exception: " << e.what() << std::endl;
+        }
     }
 };
 
@@ -172,6 +201,10 @@ public:
         : client(address, clientId)
         , connOpts { buildConnectOptions(username, password, caCerts, certfile, keyFile, keyFilePassword) }
     {
+        connect();
+        if (!client.is_connected()) {
+            throw std::runtime_error("MQTT connection is not established.");
+        }
     }
 
     ~MyMQTT()
@@ -181,16 +214,25 @@ public:
 
     void connect()
     {
-        client.connect(connOpts)->wait();
-        std::cout << "Connected to MQTT broker.\n";
+        try {
+            client.connect(connOpts)->wait_for(TIMEOUT); // 断线重连
+            std::cout << "Connected to MQTT broker.\n";
+        } catch (const mqtt::exception& e) {
+            std::cerr << "Error: " << e.what() << std::endl;
+        }
     }
 
     void publish(const std::string& topic, const std::string& payload, int qos, bool retained = false)
     {
         auto msg = mqtt::make_message(topic, payload, qos, retained);
-        bool ok = client.publish(msg)->wait_for(TIMEOUT);
-        if (!ok) {
-            std::cerr << "Error: Publishing message timed out." << std::endl;
+        try {
+            bool ok = client.publish(msg)->wait_for(TIMEOUT);
+            if (!ok) {
+                std::cerr << "Error: Publishing message timed out." << std::endl;
+            }
+        } catch (const mqtt::exception& e) {
+            std::cerr << "Error: " << e.what() << std::endl;
+            connect();
         }
     }
 };
@@ -354,7 +396,7 @@ private:
         std::string startTime;
     };
 
-public:
+protected:
     std::shared_ptr<MyRedis> m_redis;
     std::shared_ptr<MyMQTT> m_MQTTCli;
     std::shared_ptr<MyTaos> m_taosCli;
@@ -374,29 +416,6 @@ public:
 
     virtual int logic() = 0;
 
-    void send_message(const std::string& topic)
-    {
-        json j;
-        for (const auto& pair : alerts[m_unit]) {
-            json alarms;
-            for (const auto& alarm : pair.second) {
-                json alarmJson;
-                alarmJson["code"] = alarm.code;
-                alarmJson["desc"] = alarm.desc;
-                alarmJson["advice"] = alarm.advice;
-                alarmJson["startTime"] = alarm.startTime;
-                // std::cout << alarm.startTime << '\n';
-                alarms.push_back(alarmJson);
-                // std::cout << "Code: " << alarmJson["code"] << ", Desc: " << alarmJson["desc"] << ", Advice: " << alarmJson["advice"] << ", Start Time: " << alarmJson["startTime"] << '\n';
-            }
-            j[std::string(pair.first)] = alarms;
-        }
-
-        const std::string jsonString = j.dump();
-        m_MQTTCli->publish(topic, jsonString, QOS, false);
-        alerts.clear();
-    }
-
     void trigger(const std::string_view& key, const std::string_view& field, const std::string_view& tag,
         const std::string_view& content, const std::string_view& st, const std::string_view& now)
     {
@@ -409,14 +428,14 @@ public:
         alerts[m_unit]["alarms"].emplace_back(newAlarm);
 
         if (st == "0") {
-            m_redis->redis.hset(key, field, now);
+            m_redis->m_hset(key, field, now);
         }
     }
 
     void revert(const std::string_view& key, const std::string_view& field, const std::string_view& st) const
     {
         if (!st.empty()) {
-            m_redis->redis.hset(key, field, "0");
+            m_redis->m_hset(key, field, "0");
         }
     }
 
@@ -440,6 +459,30 @@ public:
         }
 
         return query;
+    }
+
+public:
+    void send_message(const std::string& topic)
+    {
+        json j;
+        for (const auto& pair : alerts[m_unit]) {
+            json alarms;
+            for (const auto& alarm : pair.second) {
+                json alarmJson;
+                alarmJson["code"] = alarm.code;
+                alarmJson["desc"] = alarm.desc;
+                alarmJson["advice"] = alarm.advice;
+                alarmJson["startTime"] = alarm.startTime;
+                // std::cout << alarm.startTime << '\n';
+                alarms.push_back(alarmJson);
+                // std::cout << "Code: " << alarmJson["code"] << ", Desc: " << alarmJson["desc"] << ", Advice: " << alarmJson["advice"] << ", Start Time: " << alarmJson["startTime"] << '\n';
+            }
+            j[std::string(pair.first)] = alarms;
+        }
+
+        const std::string jsonString = j.dump();
+        m_MQTTCli->publish(topic, jsonString, QOS, false);
+        alerts.clear();
     }
 };
 
@@ -474,8 +517,7 @@ public:
 
         std::optional<std::string> optional_str;
         for (const std::string& tag : m_cols) {
-            optional_str = m_redis->redis.hget(key, tag);
-            const std::string st = optional_str.value_or("0");
+            const std::string st = m_redis->m_hget(key, tag);
 
             if (result["0"][tag] != nullptr) {
                 if (result["0"][tag] < 0.96) {
@@ -522,8 +564,7 @@ public:
 
         std::optional<std::string> optional_str;
         for (const std::string& tag : m_cols) {
-            optional_str = m_redis->redis.hget(key, tag);
-            const std::string st = optional_str.value_or("0");
+            const std::string st = m_redis->m_hget(key, tag);
 
             if (result["0"][tag] != nullptr) {
                 if (result["0"][tag] == true) {
@@ -571,8 +612,7 @@ public:
         std::optional<std::string> optional_str;
         for (std::size_t i = 0; i < m_cols.size(); ++i) {
             const std::string& tag = m_cols[i];
-            optional_str = m_redis->redis.hget(key, tag);
-            const std::string st = optional_str.value_or("0");
+            const std::string st = m_redis->m_hget(key, tag);
 
             if (result["0"][tag] != nullptr) {
                 if ((i < 4 && result["0"][tag] > 650) || result["0"][tag] > 10) {
@@ -819,7 +859,7 @@ public:
     {
     }
 
-    tf::Taskflow flow(int& count)
+    tf::Taskflow flow(long long& count)
     {
         tf::Taskflow f1("F1");
 
@@ -888,7 +928,6 @@ int main()
 
     auto MQTTCli = std::make_shared<MyMQTT>(MQTT_ADDRESS, CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD,
         MQTT_CA_CERTS, MQTT_CERTFILE, MQTT_KEYFILE, MQTT_KEYFILE_PASSWORD);
-    MQTTCli->connect();
 
     auto redisCli = std::make_shared<MyRedis>(REDIS_IP, REDIS_PORT, REDIS_DB, REDIS_USER, REDIS_PASSWORD);
 
@@ -899,17 +938,18 @@ int main()
     Task task1(unit1, redisCli, MQTTCli, taosCli);
 
     tf::Executor executor;
-    int count { 0 };
+    long long count { 0 };
+    tf::Taskflow f { task1.flow(count) };
 
     while (1) {
         auto start = std::chrono::steady_clock::now();
 
-        executor.run(task1.flow(count)).wait();
+        executor.run(f).wait();
         // executor.run(task2.flow()).wait();
 
         auto end = std::chrono::steady_clock::now();
         auto elapsed_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-        printf("Loop %d time used: %ld microseconds\n", ++count, elapsed_time.count());
+        std::cout << "Loop " << ++count << " time used: " << elapsed_time.count() << " microseconds\n";
         std::this_thread::sleep_for(std::chrono::microseconds(INTERVAL - elapsed_time.count()));
     }
 
