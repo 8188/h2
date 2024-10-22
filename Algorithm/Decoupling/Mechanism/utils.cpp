@@ -207,7 +207,12 @@ public:
         }
     }
 
-    ~MyMQTT()
+    MyMQTT(const MyMQTT&) = delete;
+    MyMQTT& operator=(const MyMQTT&) = delete;
+    MyMQTT(MyMQTT&&) = default;
+    MyMQTT& operator=(MyMQTT&&) = default;
+
+    ~MyMQTT() noexcept
     {
         disconnect();
     }
@@ -267,7 +272,12 @@ public:
         puts("Connected to Taos.");
     }
 
-    ~MyTaos()
+    MyTaos(const MyTaos&) = delete;
+    MyTaos& operator=(const MyTaos&) = delete;
+    MyTaos(MyTaos&&) = delete;
+    MyTaos& operator=(MyTaos&&) = delete;
+        
+    ~MyTaos() noexcept
     {
         if (taos) {
             taos_close(taos);
@@ -425,11 +435,12 @@ protected:
         newAlarm.advice = "";
         newAlarm.startTime = st;
 
-        alerts[m_unit]["alarms"].emplace_back(newAlarm);
-
         if (st == "0") {
             m_redis->m_hset(key, field, now);
+            newAlarm.startTime = now;
         }
+
+        alerts[m_unit]["alarms"].emplace_back(newAlarm);
     }
 
     void revert(const std::string_view& key, const std::string_view& field, const std::string_view& st) const
@@ -515,7 +526,6 @@ public:
             return flag;
         }
 
-        std::optional<std::string> optional_str;
         for (const std::string& tag : m_cols) {
             const std::string st = m_redis->m_hget(key, tag);
 
@@ -562,7 +572,6 @@ public:
             return flag;
         }
 
-        std::optional<std::string> optional_str;
         for (const std::string& tag : m_cols) {
             const std::string st = m_redis->m_hget(key, tag);
 
@@ -609,7 +618,6 @@ public:
             return flag;
         }
 
-        std::optional<std::string> optional_str;
         for (std::size_t i = 0; i < m_cols.size(); ++i) {
             const std::string& tag = m_cols[i];
             const std::string st = m_redis->m_hget(key, tag);

@@ -1,18 +1,27 @@
-CC = g++
-CFLAGS = -pthread -std=c++17 -I..
+CXX = g++
+CXXFLAGS = -pthread -std=c++17 -I.. -Wall -Wextra
 LIBS = -lredis++ -lhiredis -lpaho-mqttpp3 -ltaos
-
 MQTT_LIB = $(shell ./detect_mqtt.sh)
 
-all: utils
+OUT = utils
+SRC = utils.cpp
+OBJ = $(SRC:.cpp=.o)
 
-utils: utils.cpp
-	$(CC) $(CFLAGS) $^ -o $@ $(LIBS) $(MQTT_LIB)
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-debug: CFLAGS += -g
-debug: utils
+all: $(OUT)
+
+$(OUT): $(OBJ)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LIBS) $(MQTT_LIB)
+
+debug: CXXFLAGS += -g
+debug: $(OUT)
+
+release: CXXFLAGS += -O3
+release: $(OUT)
 
 clean:
-	rm -f utils
+	rm -f $(OUT) $(OBJ)
 
-.PHONY: debug clean
+.PHONY: all debug release clean

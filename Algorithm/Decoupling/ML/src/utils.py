@@ -60,15 +60,16 @@ SRA_PEM_SCORE = ANOMALY_SCORE * 0.3 * 0.15
 
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
-a_df = [pd.DataFrame() for _ in range(2)]
-a_df_PEM = [pd.DataFrame() for _ in range(2)]
-a_df_PG = [pd.DataFrame() for _ in range(2)]
-f_df = [pd.DataFrame() for _ in range(2)]
-vrfData = [{} for _ in range(2)]
-arfData = [{} for _ in range(2)]
-healthQ = [Queue(maxsize=MAX_QUEUE_SIZE) for _ in range(2)]
-currentTime = [datetime.now() for _ in range(2)]
-now = ["" for _ in range(2)]
+n = 2
+a_df = [pd.DataFrame() for _ in range(n)]
+a_df_PEM = [pd.DataFrame() for _ in range(n)]
+a_df_PG = [pd.DataFrame() for _ in range(n)]
+f_df = [pd.DataFrame() for _ in range(n)]
+vrfData = [{} for _ in range(n)]
+arfData = [{} for _ in range(n)]
+healthQ = [Queue(maxsize=MAX_QUEUE_SIZE) for _ in range(n)]
+currentTime = [datetime.now() for _ in range(n)]
+now = ["" for _ in range(n)]
 
 
 class TaosService:
@@ -252,15 +253,15 @@ class AnomalyDetection:
 
         x = 0
         try:
-            for i in range(df.shape[1]):
-                result = grubbs.two_sided_test_indices(df.iloc[:, i].values, alpha=0.05)
+            for col in df.columns:
+                result = grubbs.two_sided_test_indices(df[col].values, alpha=0.05)
                 if result:
                     x += len(result) > 0
 
             final = x / df.shape[1]
             return final
         except Exception as e:
-            print(e)
+            print("grubbs_t exception: ", e)
             return 0
 
     def lscp_t(self, obj: str) -> float:
@@ -275,7 +276,7 @@ class AnomalyDetection:
             print("Not enough data for lscp")
             return 0
 
-        # 不能放到类变量，因为不用obj的特征数量不同
+        # 不能放到类变量，因为不同obj的特征数量不同
         clf = lscp.LSCP(
             # contamination=COMB(),
             detector_list=self._create_detector_list(),
@@ -289,7 +290,7 @@ class AnomalyDetection:
             final = np.sum(result == 1) / df.shape[1]
             return final
         except Exception as e:
-            print(e)
+            print("lscp_t exception: ", e)
             return 0
 
     def spectral_residual_saliency(self, obj: str) -> float:
@@ -311,14 +312,14 @@ class AnomalyDetection:
 
         try:
             abnormal = 0
-            for i in range(df.shape[1]):
-                score = spec.generate_anomaly_score(df.values[:, i])
+            for col in df.columns:
+                score = spec.generate_anomaly_score(df[col].values)
                 abnormal += np.sum(score > np.percentile(score, 99)) > 0
 
             result = abnormal / df.shape[1]
             return float(result)
         except Exception as e:
-            print(e)
+            print("spectral_residual_saliency exception: ", e)
             return 0
 
 
@@ -454,7 +455,7 @@ class Health:
         currentTime[self.iUnit] = datetime.now()
         now[self.iUnit] = currentTime[self.iUnit].strftime(DATE_FORMAT)
 
-    async def _machanism_alarm_nums(self) -> int:
+    async def _mechanism_alarm_nums(self) -> int:
         count = 0
         for key in self.keys:
             dic = await self.redis_conn.hgetall(key)
@@ -468,38 +469,36 @@ class Health:
     async def health_score(
         self,
         MQTTClient: aiomqtt.Client,
-        lscp: float,
-        lscp_PEM: float,
-        lscp_PG: float,
-        grubbs: float,
-        grubbs_PEM: float,
-        grubbs_PG: float,
-        SRA: float,
-        SRA_PEM: float,
-        SRA_PG: float,
+        rLscp: float,
+        rLscp_PEM: float,
+        rLscp_PG: float,
+        rGrubbs: float,
+        rGrubbs_PEM: float,
+        rGrubbs_PG: float,
+        rSRA: float,
+        rSRA_PEM: float,
+        rSRA_PG: float,
     ) -> None:
         score = ANOMALY_SCORE + ALERT_SCORE
-        nums = await self._machanism_alarm_nums()
+        nums = await self._mechanism_alarm_nums()
         score -= PER_ALERT_SCORE * nums
         remainder = score - ANOMALY_COL_RATIO
-        if lscp > ANOMALY_COL_RATIO:
-            score -= LSCP_SCORE * (lscp - remainder) / remainder
-        if lscp_PG > ANOMALY_COL_RATIO:
-            score -= LSCP_PG_SCORE * (lscp_PG - remainder) / remainder
-        if lscp_PEM > ANOMALY_COL_RATIO:
-            score -= LSCP_PEM_SCORE * (lscp_PEM - remainder) / remainder
-        if grubbs > ANOMALY_COL_RATIO:
-            score -= GRUBBS_SCORE * (grubbs - remainder) / remainder
-        if grubbs_PG > ANOMALY_COL_RATIO:
-            score -= GRUBBS_PG_SCORE * (grubbs_PG - remainder) / remainder
-        if grubbs_PEM > ANOMALY_COL_RATIO:
-            score -= GRUBBS_PEM_SCORE * (grubbs_PEM - remainder) / remainder
-        if SRA > ANOMALY_COL_RATIO:
-            score -= SRA_SCORE * (SRA - remainder) / remainder
-        if SRA_PG > ANOMALY_COL_RATIO:
-            score -= SRA_PG_SCORE * (SRA_PG - remainder) / remainder
-        if SRA_PEM > ANOMALY_COL_RATIO:
-            score -= SRA_PEM_SCORE * (SRA_PEM - remainder) / remainder
+
+        score_adjustments = {
+            rLscp: LSCP_SCORE,
+            rLscp_PG: LSCP_PG_SCORE,
+            rLscp_PEM: LSCP_PEM_SCORE,
+            rGrubbs: GRUBBS_SCORE,
+            rGrubbs_PG: GRUBBS_PG_SCORE,
+            rGrubbs_PEM: GRUBBS_PEM_SCORE,
+            rSRA: SRA_SCORE,
+            rSRA_PG: SRA_PG_SCORE,
+            rSRA_PEM: SRA_PEM_SCORE,
+        }
+
+        for ratio, score_value in score_adjustments.items():
+            if ratio > ANOMALY_COL_RATIO:
+                score -= score_value * (ratio - ANOMALY_COL_RATIO) / remainder
 
         data = {
             "timestamp": now[self.iUnit],
@@ -543,7 +542,7 @@ class Logic:
             else:
                 return 0
         except Exception as e:
-            print(e)
+            print("H2Quality exception: ", e)
             return 0
 
     def H2Leakage(self) -> Literal[0, 1]:
@@ -553,7 +552,7 @@ class Logic:
             else:
                 return 0
         except Exception as e:
-            print(e)
+            print("H2Leakage exception: ", e)
             return 0
 
     def liquidLeakage(self) -> Literal[0, 1]:
@@ -572,7 +571,7 @@ class Logic:
             else:
                 return 0
         except Exception as e:
-            print(e)
+            print("liquidLeakage exception: ", e)
             return 0
 
 
@@ -592,6 +591,16 @@ class Tasks:
         self.logic = Logic(unit)
         self.heal = Health(unit)
         self.identifier = str(uuid.uuid4())
+        self.tls_params = (
+            aiomqtt.TLSParameters(
+                ca_certs=MQTT_CA_CERTS,
+                certfile=MQTT_CERTFILE,
+                keyfile=MQTT_KEYFILE,
+                keyfile_password=MQTT_KEYFILE_PASSWORD,
+            )
+            if MQTT_CA_CERTS
+            else None
+        )
 
     async def _get_data(self):
         tasks = []
@@ -648,6 +657,7 @@ class Tasks:
                 username=MQTT_USERNAME,
                 password=MQTT_PASSWORD,
                 identifier=self.identifier,
+                tls_params=self.tls_params
             ) as MQTTClient:
                 print("----build new MQTT connection----")
 
@@ -671,6 +681,16 @@ class Tasks:
 async def test(unit: str) -> None:
     count = 0
     identifier = str(uuid.uuid4())
+    tls_params = (
+        aiomqtt.TLSParameters(
+            ca_certs=MQTT_CA_CERTS,
+            certfile=MQTT_CERTFILE,
+            keyfile=MQTT_KEYFILE,
+            keyfile_password=MQTT_KEYFILE_PASSWORD,
+        )
+        if MQTT_CA_CERTS
+        else None
+    )
     try:
         async with aiomqtt.Client(
             hostname=MQTT_IP,
@@ -678,6 +698,7 @@ async def test(unit: str) -> None:
             username=MQTT_USERNAME,
             password=MQTT_PASSWORD,
             identifier=identifier,
+            tls_params=tls_params
         ) as MQTTClient:
             print("----build new MQTT connection----")
             gd = GetData(unit)
